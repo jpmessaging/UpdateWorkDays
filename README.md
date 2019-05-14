@@ -48,7 +48,7 @@ This script fixes this situation by modifying the WorkDays value as follows:
    |EwsManagedApiPath|Path to Microsoft.Exchange.WebServices.dll
    |Server|Name of the Exchange server to send EWS request (For Exchange Online, "outlook.office365.com" or "outlook.office.com")
    |Credential|Credential of a user who accesses the target mailbox (a user with ApplicationImpersonation role)
-   |TargetMailboxSmtpAddress|Target mailbox whose WorkHous you are trying to fix
+   |TargetMailboxSmtpAddress|Target mailbox whose WorkDays you are trying to fix
    
    Optional parameters:
 

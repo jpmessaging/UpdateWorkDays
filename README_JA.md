@@ -1,5 +1,5 @@
 # UpdateWorkDays
-UpdateWorkDays.ps1 は Exchange サーバー メールボックスの予定表の "WorkDays" の設定を修正するための PowerShell スクリプトです。
+UpdateWorkDays.ps1 は Exchange サーバー メールボックスの予定表の "WorkDays" の設定を修正するための PowerShell スクリプトです。このファイル内で `Update-WorkDays` 関数が定義されています。
 
 # Background
 Exchange サーバーのコマンドレットで以下のように WorkDays を "Weekdays" や "AllDays" と構成することができますが、Outlook はこれらの値を理解しません。

@@ -1,5 +1,5 @@
 # UpdateWorkDays
-Update-WorkDays.ps1 is a a PowerShell script to update Exchange Server mailbox calendar's "WorkDays" property.
+Update-WorkDays.ps1 is a PowerShell script to update Exchange Server mailbox calendar's "WorkDays" property.
 
 # Background
 When you use Exchange Server's cmdlet to configure WorkDays to either "Weekdays" or "AllDays", Outlook does not understand these literal values.

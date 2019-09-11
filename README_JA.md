@@ -47,7 +47,7 @@ Set-MailboxCalendarConfiguration user01 -WorkDays AllDays
 
    必須パラメータ:
    
-   |name|meagning
+   |name|meaning
    |----|-
    |EwsManagedApiPath|Microsoft.Exchange.WebServices.dll のパス
    |Server|EWS サーバー名。EXO の場合には、outlook.office365.com または outlook.office.com 
@@ -56,7 +56,7 @@ Set-MailboxCalendarConfiguration user01 -WorkDays AllDays
    
    オプショナル パラメータ:
 
-   |name|meagning
+   |name|meaning
    |----|-
    |EnableTrace|トレースの出力を有効化する Switch パラメータ
    |TraceFile|トレースを出力する先のファイルのパス

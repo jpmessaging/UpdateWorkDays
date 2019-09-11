@@ -46,7 +46,7 @@ This script fixes this situation by modifying the WorkDays value as follows:
 
    Here are the mandatory parameters:
    
-   |name|meagning
+   |name|meaning
    |----|-
    |EwsManagedApiPath|Path to Microsoft.Exchange.WebServices.dll
    |Server|Name of the Exchange server to send EWS request (For Exchange Online, "outlook.office365.com" or "outlook.office.com")
@@ -55,7 +55,7 @@ This script fixes this situation by modifying the WorkDays value as follows:
    
    Optional parameters:
 
-   |name|meagning
+   |name|meaning
    |----|-
    |EnableTrace|Switch parameter to enable tracing
    |TraceFile|Path to a trace file

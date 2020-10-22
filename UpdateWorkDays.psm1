@@ -16,7 +16,7 @@ public class TraceListener : ITraceListener, IDisposable
             writer = new StreamWriter(filePath, true, Encoding.UTF8, bufferSize);
         }
 
-        // this doesn't flush everyt write. So make sure to Dispose.
+        // this doesn't flush every write. So make sure to Dispose.
         public void Trace(string traceType, string traceMessage)
         {
             writer.Write(traceMessage);
@@ -333,8 +333,8 @@ function Get-Token {
     # Array of scopes to request.  By default, "openid", "profile", and "offline_access" are included.
     [string[]]$Scopes,
 
-    # Refirect URI for the application. When this is not give, "https://login.microsoftonline.com/common/oauth2/nativeclient" will be used.
-    # Make sure to use the same URI registered fot the application.
+    # Refirect URI for the application. When this is not given, "https://login.microsoftonline.com/common/oauth2/nativeclient" will be used.
+    # Make sure to use the same URI as the one registered for the application.
     [string]$RedirectUri,
 
     # This switch parameter clears the cached token, and forces to get a new token.
@@ -343,12 +343,26 @@ function Get-Token {
 
     # Need MSAL.NET DLL under modules
     # https://github.com/AzureAD/microsoft-authentication-library-for-dotnet
+    # [MSAL.NET](https://www.nuget.org/packages/Microsoft.Identity.Client)
     if (-not ('Microsoft.Identity.Client.AuthenticationResult' -as [type])) {
-        Add-Type -Path (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.dll')
+        try {
+            Add-Type -Path (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.dll')
+        }
+        catch {
+            Write-Error $_
+            return
+        }
     }
 
+    # [MSAL.NET Extensions](https://www.nuget.org/packages/Microsoft.Identity.Client.Extensions.Msal/)
     if (-not ('Microsoft.Identity.Client.Extensions.Msal.MsalCacheHelper' -as [type])) {
-        Add-Type -Path (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.Extensions.Msal.dll')
+        try {
+            Add-Type -Path (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.Extensions.Msal.dll')
+        }
+        catch {
+            Write-Error $_
+            return
+        }
     }
 
     # Configure & create a PublicClientApplication
@@ -358,9 +372,66 @@ function Get-Token {
         $builder.WithRedirectUri($RedirectUri) | Out-Null
     }
     else {
-        # Without calling WithDefaultRedirectUri(), redirect_uri becomes "urn:ietf:wg:oauth:2.0:oob".
+        # WithDefaultRedirectUri() makes the redirect_uri "https://login.microsoftonline.com/common/oauth2/nativeclient".
+        # Without it, redirect_uri would be "urn:ietf:wg:oauth:2.0:oob".
         $builder.WithDefaultRedirectUri() | Out-Null
     }
+
+    # Note about proxy:
+    # MSAL.NET uses System.Net.Http.HttpClient when calling RequestBase.ResolveAuthorityEndpointsAsync(), which reaches "/common/discovery/instance?api-version=1.1&authorization_endpoint=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fv2.0%2Fauthorize".
+    # (And this data is cached by Microsoft.Identity.Client.Instance.Discovery.NetworkCacheMetadataProvider in memory. And it won't be fetched next time).
+    # And it also uses System.Windows.Forms.WebBrowser-derived class (named "CustomWebBrowser") when calling InteractiveRequest.GetTokenResponseAsync() to reach "authorize" endpoint
+    # e.g. "/common/oauth2/v2.0/authorize?scope=openid+profile+offline_access&response_type=code&client_id=d3590ed6-52b3-4102-aeff-aad2292ab01d&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient...
+    # I can provide the builder's WithHttpClientFactory() with a IMsalHttpClientFactory of a HttpClient with a specific proxy. However I don't think I can do the same for the CustomWebBrowser.
+    # Thus, in order to use a consistent proxy, it's best to configure the user's default proxy in WinInet.
+    <#
+    if ($Proxy) {
+        # Create a factory to customize HttpClient to use the given proxy.
+        $httpClientFactoryType = @'
+        using System.Net;
+        using System.Net.Http;
+        using Microsoft.Identity.Client;
+
+        public class SimpleHttpClientFactory : IMsalHttpClientFactory
+        {
+            public WebProxy Proxy { get { return proxy; } }
+
+            public SimpleHttpClientFactory(string ProxyAddress)
+            {
+                proxy = new WebProxy(ProxyAddress);
+            }
+
+            public HttpClient GetHttpClient()
+            {
+                System.Console.WriteLine("Begin SimpleHttpClientFactory.GetHttpClient");
+                HttpClientHandler clientHandler = new HttpClientHandler
+                {
+                    Proxy = this.Proxy
+                };
+
+                return new HttpClient(clientHandler);
+            }
+
+            private WebProxy proxy;
+        }
+'@
+
+        if (-not ('SimpleHttpClientFactory' -as [type])) {
+            try {
+                Add-Type -TypeDefinition $httpClientFactoryType -ReferencedAssemblies 'System.Net.Http.dll', (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.dll')
+            }
+            catch {
+                Write-Error $_
+                return
+            }
+        }
+
+        $httpClientFactory = New-Object SimpleHttpClientFactory($Proxy)
+        $builder.WithHttpClientFactory($httpClientFactory) | Out-Null
+
+        Write-Verbose "Using a Proxy `"$($httpClientFactory.Proxy.Address)`""
+    }
+    #>
 
     $publicClient = $builder.Build()
 

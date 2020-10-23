@@ -316,9 +316,88 @@ function Update-WorkDays
     }
 }
 
+$MSALLoggerType = @'
+using System;
+using System.IO;
+using Microsoft.Identity.Client;
+
+public class MSALLogger
+{
+    public MSALLogger()
+    {
+    }
+
+    public MSALLogger(string filePath)
+    {
+        writer = new StreamWriter(filePath, true, System.Text.Encoding.UTF8, bufferSize);
+        writer.WriteLine("level,containsPii,message");
+    }
+
+    // Microsoft.Identity.Client.LogCallback
+    public void OnLogging(LogLevel level, string message, bool containsPii)
+    {
+        if (writer != null)
+        {
+            writer.WriteLine(string.Format("{0},{1},\"{2}\"", level, containsPii, message));
+        }
+        else
+        {
+            Console.WriteLine(string.Format("{0},{1},\"{2}\"", level, containsPii, message));
+        }
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (disposed)
+            return;
+
+        if (disposing)
+        {
+            if (writer != null)
+            {
+                writer.Dispose();
+            }
+
+            GC.SuppressFinalize(this);
+        }
+
+        disposed = true;
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+    }
+
+    private StreamWriter writer;
+    private int bufferSize = 80 * 1024;
+    private bool disposed = false; // To detect redundant calls
+}
+'@
+
 <#
 .SYNOPSIS
 Obtains a modern auth token (maybe from a cached one if available).
+
+.NOTES
+You need the following MSAL.NET modules under "modules" sub folder:
+
+ [MSAL.NET](https://www.nuget.org/packages/Microsoft.Identity.Client)
+ [MSAL.NET Extensions](https://www.nuget.org/packages/Microsoft.Identity.Client.Extensions.Msal/)
+
+ Folder structure should look like this:
+
+    SomeFolder
+    |  UpdateWorkDays.psm1
+    |
+    |- modules
+          Microsoft.Identity.Client.dll
+          Microsoft.Identity.Client.Extensions.Msal.dll
+
+.LINK
+[AzureAD/microsoft-authentication-library-for-dotnet](https://github.com/AzureAD/microsoft-authentication-library-for-dotnet)
+[AzureAD/microsoft-authentication-extensions-for-dotnet](https://github.com/AzureAD/microsoft-authentication-extensions-for-dotnet)
+
 #>
 function Get-Token {
     [CmdletBinding()]
@@ -337,8 +416,11 @@ function Get-Token {
     # Make sure to use the same URI as the one registered for the application.
     [string]$RedirectUri,
 
-    # This switch parameter clears the cached token, and forces to get a new token.
-    [switch]$ClearCache
+    # Clear the cached token and force to get a new token.
+    [switch]$ClearCache,
+
+    # Enable MSAL logging. Log file will be msal.log under the script folder.
+    [switch]$EnableLogging
     )
 
     # Need MSAL.NET DLL under modules
@@ -375,6 +457,18 @@ function Get-Token {
         # WithDefaultRedirectUri() makes the redirect_uri "https://login.microsoftonline.com/common/oauth2/nativeclient".
         # Without it, redirect_uri would be "urn:ietf:wg:oauth:2.0:oob".
         $builder.WithDefaultRedirectUri() | Out-Null
+    }
+
+    $logger = $null
+    if ($EnableLogging) {
+        if (-not ('MSALLogger' -as [type])) {
+            Add-Type -TypeDefinition $MSALLoggerType -ReferencedAssemblies (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.dll')
+        }
+
+        $logFile = Join-Path (Split-Path $PSCommandPath) 'msal.log'
+        $logger = New-Object MSALLogger($logFile)
+        $logCallback = [System.Delegate]::CreateDelegate([Microsoft.Identity.Client.LogCallback], $logger, 'OnLogging')
+        $builder.WithLogging($logCallback, [Microsoft.Identity.Client.LogLevel]::Verbose, <# enablePiiLogging #> $true, <# enableDefaultPlatformLogging #> $false) | Out-Null
     }
 
     # Note about proxy:
@@ -464,6 +558,11 @@ function Get-Token {
     }
     catch {
         Write-Error $_
+    }
+    finally {
+        if ($logger) {
+            $logger.Dispose()
+        }
     }
 }
 

@@ -316,64 +316,59 @@ function Update-WorkDays
     }
 }
 
-$MSALLoggerType = @'
-using System;
-using System.IO;
-using Microsoft.Identity.Client;
+<#
+.SYNOPSIS
+This function returns an instance of Microsoft.Identity.Client.LogCallback delegate which calls the given scriptblock when LogCallback is invoked.
+#>
+function New-LogCallback {
+    [CmdletBinding()]
+    param (
+    # Scriptblock to be called when MSAL invokes LogCallback
+    [Parameter(Mandatory=$true)]
+    [scriptblock]$Callback,
 
-public class MSALLogger
-{
-    public MSALLogger()
-    {
-    }
+    # Remaining arguments to be passd to Callback scriptblock via $Event.MessageData
+    [Parameter(ValueFromRemainingArguments)]
+    [object[]]$ArgumentList
+    )
 
-    public MSALLogger(string filePath)
-    {
-        writer = new StreamWriter(filePath, true, System.Text.Encoding.UTF8, bufferSize);
-        writer.WriteLine("level,containsPii,message");
-    }
+    # Class that exposes an event of type Microsoft.Identity.Client.LogCallback that Register-ObjectEvent can register to.
+    $LogCallbackProxyType = @"
+        using System;
+        using System.Threading;
+        using Microsoft.Identity.Client;
 
-    // Microsoft.Identity.Client.LogCallback
-    public void OnLogging(LogLevel level, string message, bool containsPii)
-    {
-        if (writer != null)
+        public sealed class LogCallbackProxy
         {
-            writer.WriteLine(string.Format("{0},{1},\"{2}\"", level, containsPii, message));
-        }
-        else
-        {
-            Console.WriteLine(string.Format("{0},{1},\"{2}\"", level, containsPii, message));
-        }
-    }
+            // This is the exposed event. The sole purpose is for Register-ObjectEvent to hook to.
+            public event LogCallback Logging;
 
-    protected virtual void Dispose(bool disposing)
-    {
-        if (disposed)
-            return;
-
-        if (disposing)
-        {
-            if (writer != null)
+            // This is the LogCallback delegate instance.
+            public LogCallback Callback
             {
-                writer.Dispose();
+                get { return new LogCallback(OnLogging); }
             }
 
-            GC.SuppressFinalize(this);
+            // Raise the event
+            private void OnLogging(LogLevel level, string message, bool containsPii)
+            {
+                LogCallback temp = Volatile.Read(ref Logging);
+                if (temp != null) {
+                    temp(level, message, containsPii);
+                }
+            }
         }
+"@
 
-        disposed = true;
+    if (-not ("LogCallbackProxy" -as [type])) {
+        Add-Type $LogCallbackProxyType -ReferencedAssemblies (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.dll')
     }
 
-    public void Dispose()
-    {
-        Dispose(true);
-    }
+    $proxy = New-Object LogCallbackProxy
+    Register-ObjectEvent -InputObject $proxy -EventName Logging -Action $Callback -MessageData $ArgumentList | Out-Null
 
-    private StreamWriter writer;
-    private int bufferSize = 80 * 1024;
-    private bool disposed = false; // To detect redundant calls
+    $proxy.Callback
 }
-'@
 
 <#
 .SYNOPSIS
@@ -459,73 +454,33 @@ function Get-Token {
         $builder.WithDefaultRedirectUri() | Out-Null
     }
 
-    $logger = $null
+    $writer = $null
+
     if ($EnableLogging) {
-        if (-not ('MSALLogger' -as [type])) {
-            Add-Type -TypeDefinition $MSALLoggerType -ReferencedAssemblies (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.dll')
-        }
-
         $logFile = Join-Path (Split-Path $PSCommandPath) 'msal.log'
-        $logger = New-Object MSALLogger($logFile)
-        $logCallback = [System.Delegate]::CreateDelegate([Microsoft.Identity.Client.LogCallback], $logger, 'OnLogging')
-        $builder.WithLogging($logCallback, [Microsoft.Identity.Client.LogLevel]::Verbose, <# enablePiiLogging #> $true, <# enableDefaultPlatformLogging #> $false) | Out-Null
+        [IO.StreamWriter]$writer = [IO.File]::AppendText($logFile)
+        Write-Verbose "MSAL Logging is enabled. Log file: $logFile"
+
+        # Add a CSV header line
+        $writer.WriteLine("datetime,level,containsPii,message");
+
+        $builder.WithLogging(
+            # Microsoft.Identity.Client.LogCallback
+            (New-LogCallback {
+                param([Microsoft.Identity.Client.LogLevel]$level, [string]$message, [bool]$containsPii)
+
+                $writer = $Event.MessageData[0]
+                $writer.WriteLine("$((Get-Date).ToString('o')),$level,$containsPii,`"$message`"")
+
+            } -ArgumentList $writer),
+
+            [Microsoft.Identity.Client.LogLevel]::Verbose,
+            # enablePiiLogging
+            $true,
+            # enableDefaultPlatformLogging
+            $false
+        ) | Out-Null
     }
-
-    # Note about proxy:
-    # MSAL.NET uses System.Net.Http.HttpClient when calling RequestBase.ResolveAuthorityEndpointsAsync(), which reaches "/common/discovery/instance?api-version=1.1&authorization_endpoint=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fv2.0%2Fauthorize".
-    # (And this data is cached by Microsoft.Identity.Client.Instance.Discovery.NetworkCacheMetadataProvider in memory. And it won't be fetched next time).
-    # And it also uses System.Windows.Forms.WebBrowser-derived class (named "CustomWebBrowser") when calling InteractiveRequest.GetTokenResponseAsync() to reach "authorize" endpoint
-    # e.g. "/common/oauth2/v2.0/authorize?scope=openid+profile+offline_access&response_type=code&client_id=d3590ed6-52b3-4102-aeff-aad2292ab01d&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient...
-    # I can provide the builder's WithHttpClientFactory() with a IMsalHttpClientFactory of a HttpClient with a specific proxy. However I don't think I can do the same for the CustomWebBrowser.
-    # Thus, in order to use a consistent proxy, it's best to configure the user's default proxy in WinInet.
-    <#
-    if ($Proxy) {
-        # Create a factory to customize HttpClient to use the given proxy.
-        $httpClientFactoryType = @'
-        using System.Net;
-        using System.Net.Http;
-        using Microsoft.Identity.Client;
-
-        public class SimpleHttpClientFactory : IMsalHttpClientFactory
-        {
-            public WebProxy Proxy { get { return proxy; } }
-
-            public SimpleHttpClientFactory(string ProxyAddress)
-            {
-                proxy = new WebProxy(ProxyAddress);
-            }
-
-            public HttpClient GetHttpClient()
-            {
-                System.Console.WriteLine("Begin SimpleHttpClientFactory.GetHttpClient");
-                HttpClientHandler clientHandler = new HttpClientHandler
-                {
-                    Proxy = this.Proxy
-                };
-
-                return new HttpClient(clientHandler);
-            }
-
-            private WebProxy proxy;
-        }
-'@
-
-        if (-not ('SimpleHttpClientFactory' -as [type])) {
-            try {
-                Add-Type -TypeDefinition $httpClientFactoryType -ReferencedAssemblies 'System.Net.Http.dll', (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.dll')
-            }
-            catch {
-                Write-Error $_
-                return
-            }
-        }
-
-        $httpClientFactory = New-Object SimpleHttpClientFactory($Proxy)
-        $builder.WithHttpClientFactory($httpClientFactory) | Out-Null
-
-        Write-Verbose "Using a Proxy `"$($httpClientFactory.Proxy.Address)`""
-    }
-    #>
 
     $publicClient = $builder.Build()
 
@@ -560,8 +515,8 @@ function Get-Token {
         Write-Error $_
     }
     finally {
-        if ($logger) {
-            $logger.Dispose()
+        if ($writer){
+            $writer.Dispose()
         }
     }
 }

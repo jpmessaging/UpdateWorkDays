@@ -1,7 +1,7 @@
 UpdateWorkDays.psm1 is a PowerShell script to update Exchange Server mailbox calendar's "WorkDays" property.  
 It defines functions `Update-WorkDays` and `Get-Token`.  
 
-[Download](https://github.com/jpmessaging/UpdateWorkDays/releases/download/v2020-10-22/UpdateWorkDays.zip)
+[Download](https://github.com/jpmessaging/UpdateWorkDays/releases/download/v2020-10-25/UpdateWorkDays.zip)
 
 ## Background  
 When you use Exchange Server's cmdlet to configure WorkDays to either "Weekdays" or "AllDays", Outlook does not understand these literal values.  

@@ -333,7 +333,7 @@ function New-LogCallback {
     )
 
     # Class that exposes an event of type Microsoft.Identity.Client.LogCallback that Register-ObjectEvent can register to.
-    $LogCallbackProxyType = @"
+    $LogCallbackProxyType = @'
         using System;
         using System.Threading;
         using Microsoft.Identity.Client;
@@ -358,7 +358,7 @@ function New-LogCallback {
                 }
             }
         }
-"@
+'@
 
     if (-not ("LogCallbackProxy" -as [type])) {
         Add-Type $LogCallbackProxyType -ReferencedAssemblies (Join-Path (Split-Path $PSCommandPath) 'modules\Microsoft.Identity.Client.dll')
@@ -443,7 +443,7 @@ function Get-Token {
     }
 
     # Configure & create a PublicClientApplication
-    $builder = [Microsoft.Identity.Client.PublicClientApplicationBuilder]::Create($ClientId).WithAuthority("https://login.microsoftonline.com/$TenantId/")
+    $builder = [Microsoft.Identity.Client.PublicClientApplicationBuilder]::Create($ClientId).WithAuthority((New-Object System.Uri "https://login.microsoftonline.com/$TenantId/"), <#validateAuthority#> $false)
 
     if ($RedirectUri) {
         $builder.WithRedirectUri($RedirectUri) | Out-Null

@@ -54,6 +54,8 @@ The following modules need to be placed under "modules" sub folder where the scr
    $token = Get-Token -ClientId '63ce5cc6-c944-4baa-83d1-5cac8cdf487e' -Scopes 'https://outlook.office365.com/EWS.AccessAsUser.All'  
    ```  
 
+   \* Client ID above is just an example. Use your own application's Client ID.  
+
 4. Execute Update-WorkDays  
 
    #### mandatory parameters:  

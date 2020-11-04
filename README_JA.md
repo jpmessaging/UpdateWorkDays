@@ -53,6 +53,8 @@ Set-MailboxCalendarConfiguration user01 -WorkDays AllDays
    $token = Get-Token -ClientId '63ce5cc6-c944-4baa-83d1-5cac8cdf487e' -Scopes 'https://outlook.office365.com/EWS.AccessAsUser.All'
    ```
 
+   ※ 上記 Client ID はあくまでサンプルです。当該環境で登録したアプリケーションの Client ID を利用ください。
+   
 4. Update-WorkDays を実行します
 
    #### 必須パラメータ:
